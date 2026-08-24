@@ -1,0 +1,37 @@
+# Never commit patient-level data or NONMEM run output
+*.csv
+*.tab
+*.phi
+*.eta
+*.par
+*.ext
+*.lst
+*.cov
+*.coi
+*.cor
+*.xml
+*.sas7bdat
+*.xpt
+*.xlsx
+*.xls
+FDATA*
+NM_run*/
+run0*/
+pirana*/
+
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+*.Rproj
+
+# mrgsolve build artifacts
+*.so
+*.o
+*.dll
+mrgsolve-*/
+
+# OS
+.DS_Store
+Thumbs.db
