@@ -1,23 +1,34 @@
 # ============================================================================
-# Piperacillin Pharmacokinetic Simulation Dashboard - Version 2
-# Enhanced UI with improved aesthetics and additional information
+# Dosing Simulator
+#
+# Monte Carlo simulation of intravenous dosing regimens from a generic
+# two-compartment population PK model. The drug is not fixed: typical PK
+# parameters, covariate effects and variability are all inputs, so any
+# compound described by two-compartment linear kinetics can be explored.
+#
+# The model specification lives in models/TwoCompartment.cpp.
 # ============================================================================
 
-# Data import
-library(haven)
+# mrgsolve exports `filter` and `req`, which collide with dplyr's and shiny's.
+# Attach order does not reliably settle it -- re-attaching a package that is
+# already loaded does not move it up the search path, so calling
+# `shiny::runApp()` before this file is sourced is enough to flip which one
+# wins. The two ambiguous calls are namespace-qualified below instead.
+library(mrgsolve)
 library(tidyverse)
-library(mrgsolve) 
-library(knitr)
 library(shiny)
 library(shinydashboard)
 library(DT)
 
-# library(rsconnect)  # Only needed for deployment
+# Compiled once at startup, then updated per run with param() and omat()
+# rather than re-read, which would recompile on every reactive invalidation.
+mod_base <- mread("TwoCompartment", project = "models")
 
-# The mrgsolve model lives in models/Piperacillin.cpp, resolved relative to this file.
-mod1 <- mread("Piperacillin", project = "models")
+# A log-normal coefficient of variation, as a fraction, expressed as the
+# variance of the underlying normal. Entering omega as a CV is what people
+# read off a report; the model needs the variance.
+cv_to_var <- function(cv_percent) log(1 + (cv_percent / 100)^2)
 
-# Custom CSS for enhanced aesthetics
 custom_css <- tags$head(
   tags$style(HTML("
     /* Main body styling */
@@ -25,19 +36,19 @@ custom_css <- tags$head(
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
     }
-    
+
     /* Sidebar styling */
     .sidebar {
       background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
       color: white;
       box-shadow: 2px 0 10px rgba(0,0,0,0.1);
     }
-    
+
     .sidebar .shiny-input-container {
       color: white;
       margin-bottom: 20px;
     }
-    
+
     .sidebar .shiny-input-container label {
       color: white !important;
       font-weight: bold;
@@ -45,58 +56,66 @@ custom_css <- tags$head(
       margin-bottom: 8px;
       display: block;
     }
-    
-    .sidebar h3 {
+
+    .sidebar h3, .sidebar h4 {
       color: #ecf0f1;
       font-weight: 600;
-      margin-bottom: 20px;
+      margin-bottom: 15px;
       border-bottom: 2px solid #3498db;
-      padding-bottom: 10px;
+      padding-bottom: 8px;
     }
-    
+
+    /* Numeric inputs inside the dark sidebar */
+    .sidebar input[type=number] {
+      background: rgba(255,255,255,0.95);
+      color: #2c3e50;
+      border-radius: 4px;
+      border: none;
+      width: 100%;
+    }
+
+    .sidebar .radio label, .sidebar .shiny-options-group label {
+      color: #ecf0f1 !important;
+      font-weight: normal;
+    }
+
     /* Slider styling */
     .irs-bar {
       background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%);
       border: none;
     }
-    
-    .irs-single {
+
+    .irs-single, .irs-from, .irs-to {
       background: #3498db;
       border: none;
       color: white;
     }
-    
+
     .irs-handle {
       border: 3px solid #3498db;
       background: white;
       cursor: pointer;
     }
-    
-    .irs-handle:hover {
+
+    .irs-handle:hover, .irs-handle.state_hover {
       border-color: #2980b9;
     }
-    
-    .irs-handle.state_hover {
-      border-color: #2980b9;
-    }
-    
-    /* Ensure slider inputs are visible and functional */
+
     .shiny-input-container {
       margin-bottom: 0;
       width: 100% !important;
     }
-    
+
     .form-group {
       margin-bottom: 0;
       width: 100% !important;
     }
-    
-    /* Sidebar inputs container */
+
     .sidebar-inputs {
       position: relative;
       z-index: 1;
     }
-    
+
     /* Ensure sliders are clickable and visible */
     .irs {
       position: relative;
@@ -110,15 +129,14 @@ custom_css <- tags$head(
       height: 40px !important;
       z-index: 10 !important;
     }
-    
+
     .irs-slider {
       cursor: pointer !important;
       z-index: 11 !important;
       position: absolute !important;
     }
-    
+
     .irs-handle {
-      cursor: pointer !important;
       cursor: grab !important;
       z-index: 12 !important;
       position: absolute !important;
@@ -129,22 +147,20 @@ custom_css <- tags$head(
       border: 3px solid #3498db !important;
       border-radius: 50% !important;
     }
-    
+
     .irs-handle:active {
       cursor: grabbing !important;
     }
-    
-    /* Make sure slider bar is visible */
+
     .irs-bar {
       display: block !important;
       position: absolute !important;
-      width: 100% !important;
       height: 4px !important;
       top: 25px !important;
       background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%) !important;
       z-index: 9 !important;
     }
-    
+
     .irs-line {
       display: block !important;
       position: absolute !important;
@@ -154,42 +170,38 @@ custom_css <- tags$head(
       background: #ecf0f1 !important;
       z-index: 8 !important;
     }
-    
+
     /* Value boxes */
     .value-box {
       border-radius: 10px;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
       transition: transform 0.2s;
     }
-    
+
     .value-box:hover {
       transform: translateY(-2px);
       box-shadow: 0 6px 12px rgba(0,0,0,0.15);
     }
-    
-    /* Info boxes */
+
     .info-box {
       border-radius: 8px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
-    /* Plot container */
+
     .plot-container {
       background: white;
       border-radius: 10px;
       padding: 20px;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
     }
-    
-    /* Table styling */
+
     .dataTables_wrapper {
       background: white;
       border-radius: 8px;
       padding: 15px;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
-    /* Header styling */
+
     .main-header {
       background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
       color: white;
@@ -197,18 +209,16 @@ custom_css <- tags$head(
       border-radius: 0;
       box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
-    
+
     .main-header .logo {
       font-size: 24px;
       font-weight: bold;
     }
-    
-    /* Content area */
+
     .content-wrapper {
       background: transparent;
     }
-    
-    /* Section headers */
+
     h2 {
       color: #2c3e50;
       font-weight: 600;
@@ -218,172 +228,159 @@ custom_css <- tags$head(
   "))
 )
 
-# Define UI
+# ---------------------------------------------------------------------------
+# UI
+# ---------------------------------------------------------------------------
+
 ui <- dashboardPage(
   skin = "blue",
-  
-  # Header
+
   dashboardHeader(
     title = tags$div(
-      tags$span("Piperacillin", style = "font-weight: bold; font-size: 24px;"),
-      tags$span(" PK Simulation Dashboard", style = "font-size: 18px; opacity: 0.9;")
+      tags$span("Dosing", style = "font-weight: bold; font-size: 24px;"),
+      tags$span(" Simulator", style = "font-size: 18px; opacity: 0.9;")
     ),
     titleWidth = 350
   ),
-  
-  # Sidebar
+
   dashboardSidebar(
-    width = 300,
+    width = 320,
     custom_css,
     sidebarMenu(
-      menuItem("Simulation Dashboard", tabName = "dashboard", icon = icon("chart-line")),
+      menuItem("Simulation", tabName = "dashboard", icon = icon("chart-line")),
+      menuItem("Model setup", tabName = "setup", icon = icon("sliders")),
       menuItem("About", tabName = "about", icon = icon("info-circle"))
     ),
-    
-    # Input controls - using sidebarPanel approach
+
+    # The sidebar holds what gets swept during a session. Drug parameters,
+    # which are set once for a given compound, live on the Model setup tab.
     tags$div(
       class = "sidebar-inputs",
-      style = "padding: 20px; padding-top: 10px;",
-      
-      tags$h3("Simulation Parameters", style = "color: white; margin-bottom: 20px; font-size: 16px;"),
-      
-      # Creatinine Clearance input
-      sliderInput("CRCL", 
-                 "Creatinine Clearance (mL/min/1.73m²)",
-                 min = 10, max = 140, value = 140, step = 10,
-                 ticks = TRUE,
-                 width = "100%"),
-      
-      # Weight input
-      sliderInput("WT", 
-                 "Body Weight (kg)",
-                 min = 10, max = 100, value = 20, step = 10,
-                 ticks = TRUE,
-                 width = "100%"),
-      
-      # Dose input
-      sliderInput("dose", 
-                 "Dose (mg/kg)",
-                 min = 5, max = 100, value = 55, step = 5,
-                 ticks = TRUE,
-                 width = "100%"),
-      
-      # Dosing information display
-      tags$div(
-        style = "background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin-top: 20px;",
-        tags$h4("Dosing Regimen", style = "color: white; margin-bottom: 10px; font-size: 14px;"),
-        tags$p("Interval: Q2H (every 2 hours)", style = "color: #ecf0f1; font-size: 12px; margin: 5px 0;"),
-        tags$p("Infusion Duration: 30 minutes", style = "color: #ecf0f1; font-size: 12px; margin: 5px 0;"),
-        tags$p("Total Doses: 13 doses over 24h", style = "color: #ecf0f1; font-size: 12px; margin: 5px 0;")
-      )
+      style = "padding: 18px; padding-top: 8px;",
+
+      tags$h4("Patient population", style = "font-size: 15px;"),
+
+      sliderInput("wt_range", "Body weight (kg)",
+                  min = 1, max = 150, value = c(15, 25), step = 1,
+                  width = "100%"),
+
+      sliderInput("renal_range", "Renal function (mL/min/1.73m²)",
+                  min = 5, max = 200, value = c(100, 140), step = 5,
+                  width = "100%"),
+
+      tags$h4("Dosing regimen", style = "font-size: 15px; margin-top: 10px;"),
+
+      numericInput("dose", "Dose", value = 50, min = 0, step = 5, width = "100%"),
+
+      radioButtons("dose_basis", NULL,
+                   choices = c("per kg body weight" = "mgkg", "flat dose" = "flat"),
+                   selected = "mgkg", width = "100%"),
+
+      numericInput("interval", "Dosing interval (h)",
+                   value = 8, min = 0.25, step = 1, width = "100%"),
+
+      numericInput("infdur", "Infusion duration (h, 0 = bolus)",
+                   value = 0.5, min = 0, step = 0.25, width = "100%"),
+
+      numericInput("duration", "Simulation duration (h)",
+                   value = 48, min = 1, step = 12, width = "100%"),
+
+      tags$h4("Targets", style = "font-size: 15px; margin-top: 10px;"),
+
+      # Defaults sit either side of the trough distribution produced by the
+      # default drug and regimen, so the two value boxes land on different
+      # sides of the colour thresholds rather than both reading 100%.
+      numericInput("target1", "Lower target (mg/L)",
+                   value = 8, min = 0, step = 1, width = "100%"),
+
+      numericInput("target2", "Upper target (mg/L)",
+                   value = 20, min = 0, step = 1, width = "100%")
     )
   ),
-  
-  # Body
+
   dashboardBody(
     custom_css,
     tabItems(
-      # Dashboard tab
+
+      # --- Simulation tab ---------------------------------------------------
       tabItem(
         tabName = "dashboard",
-        
-        # Summary value boxes
+
         fluidRow(
-          valueBoxOutput("pta_8_box", width = 3),
-          valueBoxOutput("pta_32_box", width = 3),
+          valueBoxOutput("pta_1_box", width = 3),
+          valueBoxOutput("pta_2_box", width = 3),
           valueBoxOutput("cl_box", width = 3),
           valueBoxOutput("dose_total_box", width = 3)
         ),
-        
-        # Main plot
+
         fluidRow(
           box(
             title = tags$div(
-              tags$strong("Piperacillin Concentration-Time Profile"),
-              tags$span(" (n=1000 virtual patients)", style = "color: #7f8c8d; font-size: 14px; font-weight: normal;")
+              tags$strong("Concentration-time profile"),
+              tags$span(textOutput("plot_subtitle", inline = TRUE),
+                        style = "color: #7f8c8d; font-size: 14px; font-weight: normal;")
             ),
             status = "primary",
             solidHeader = TRUE,
             width = 12,
             collapsible = TRUE,
             tags$div(class = "plot-container",
-              plotOutput("main_plot", height = "600px")
-            )
+                     plotOutput("main_plot", height = "600px"))
           )
         ),
-        
-        # Additional information boxes
+
         fluidRow(
           box(
-            title = "Target Attainment Analysis",
+            title = "Target attainment",
             status = "info",
             solidHeader = TRUE,
             width = 6,
             collapsible = TRUE,
             tags$div(
               style = "padding: 15px;",
-              tags$p(
-                tags$strong("1× MIC Target (8 mg/L):"),
-                tags$span(" Minimum inhibitory concentration threshold for efficacy.", 
-                         style = "color: #7f8c8d;")
-              ),
-              tags$p(
-                tags$strong("4× MIC Target (32 mg/L):"),
-                tags$span(" Higher threshold for enhanced efficacy.", 
-                         style = "color: #7f8c8d;")
-              ),
+              uiOutput("target_description"),
               tags$hr(),
               tags$p(
                 tags$em("Note: "),
-                "Probability of Target Attainment (PTA) is calculated based on trough concentrations 
-                (minimum concentrations) at steady state (after 20 hours).",
+                "Target attainment is the proportion of simulated subjects whose ",
+                tags$strong("trough"), " concentration over the final dosing interval ",
+                "stays above the target. The time above target reported in the table ",
+                "is the share of that interval spent above the lower target.",
                 style = "color: #7f8c8d; font-size: 12px; margin-top: 10px;"
               )
             )
           ),
-          
+
           box(
-            title = "Simulation Details",
+            title = "Simulation details",
             status = "success",
             solidHeader = TRUE,
             width = 6,
             collapsible = TRUE,
             tags$div(
               style = "padding: 15px;",
-              tags$p(
-                tags$strong("Virtual Patients: "),
-                "1,000 patients simulated"
-              ),
-              tags$p(
-                tags$strong("Simulation Duration: "),
-                "24 hours"
-              ),
-              tags$p(
-                tags$strong("Time Resolution: "),
-                "0.1 hours"
-              ),
-              tags$p(
-                tags$strong("Body Weight Range: "),
-                textOutput("wt_range", inline = TRUE)
-              ),
-              tags$p(
-                tags$strong("CrCl Range: "),
-                textOutput("crcl_range", inline = TRUE)
-              ),
+              tags$p(tags$strong("Virtual subjects: "),
+                     textOutput("n_subjects_text", inline = TRUE)),
+              tags$p(tags$strong("Duration: "),
+                     textOutput("duration_text", inline = TRUE)),
+              tags$p(tags$strong("Doses given: "),
+                     textOutput("n_doses_text", inline = TRUE)),
+              tags$p(tags$strong("Body weight range: "),
+                     textOutput("wt_range_text", inline = TRUE)),
+              tags$p(tags$strong("Renal function range: "),
+                     textOutput("renal_range_text", inline = TRUE)),
               tags$hr(),
-              tags$p(
-                tags$strong("Clearance (CL): "),
-                textOutput("cl_value", inline = TRUE),
-                " L/h"
-              )
+              tags$p(tags$strong("Mean clearance: "),
+                     textOutput("cl_value", inline = TRUE), " L/h"),
+              tags$p(tags$strong("Assessment window: "),
+                     textOutput("window_text", inline = TRUE))
             )
           )
         ),
-        
-        # Detailed statistics table
+
         fluidRow(
           box(
-            title = "Detailed Statistics",
+            title = "Detailed statistics",
             status = "primary",
             solidHeader = TRUE,
             width = 12,
@@ -393,48 +390,143 @@ ui <- dashboardPage(
           )
         )
       ),
-      
-      # About tab
+
+      # --- Model setup tab --------------------------------------------------
+      tabItem(
+        tabName = "setup",
+
+        fluidRow(
+          box(
+            title = "Disposition parameters",
+            status = "primary",
+            solidHeader = TRUE,
+            width = 6,
+            tags$p("Typical values for a subject at the reference covariates below.",
+                   style = "color: #7f8c8d;"),
+            fluidRow(
+              column(6, numericInput("tvcl", "CL (L/h)", value = 5, min = 0.01, step = 0.5)),
+              column(6, numericInput("tvv1", "V1 (L)", value = 15, min = 0.01, step = 1))
+            ),
+            fluidRow(
+              column(6, numericInput("tvq", "Q (L/h)", value = 3, min = 0, step = 0.5)),
+              column(6, numericInput("tvv2", "V2 (L)", value = 25, min = 0.01, step = 1))
+            )
+          ),
+
+          box(
+            title = "Covariate model",
+            status = "primary",
+            solidHeader = TRUE,
+            width = 6,
+            tags$p("Typical values are defined at the reference covariates; these should match whatever the source estimates were normalised to.",
+                   style = "color: #7f8c8d;"),
+            fluidRow(
+              column(6, numericInput("wt_ref", "Reference weight (kg)",
+                                     value = 70, min = 1, step = 5)),
+              column(6, numericInput("renal_ref", "Reference renal function",
+                                     value = 120, min = 1, step = 10))
+            ),
+            fluidRow(
+              column(6, numericInput("renal_exp", "Renal exponent on CL",
+                                     value = 0.5, min = 0, max = 2, step = 0.05)),
+              column(6, tags$p(tags$em("0 removes the renal effect; 1 makes clearance proportional to the marker."),
+                               style = "color: #7f8c8d; font-size: 12px; margin-top: 25px;"))
+            ),
+            tags$hr(),
+            checkboxInput("allometric", "Allometric weight scaling (0.75 on flows, 1 on volumes)",
+                          value = TRUE)
+          )
+        ),
+
+        fluidRow(
+          box(
+            title = "Variability",
+            status = "info",
+            solidHeader = TRUE,
+            width = 6,
+            tags$p("Entered as coefficients of variation; converted to log-scale variances internally.",
+                   style = "color: #7f8c8d;"),
+            fluidRow(
+              column(6, numericInput("iiv_cl", "Between-subject CV on CL (%)",
+                                     value = 30, min = 0, max = 200, step = 5)),
+              column(6, numericInput("iiv_v1", "Between-subject CV on V1 (%)",
+                                     value = 25, min = 0, max = 200, step = 5))
+            ),
+            fluidRow(
+              column(6, numericInput("iov_cl", "Between-occasion CV on CL (%)",
+                                     value = 0, min = 0, max = 200, step = 5)),
+              column(6, tags$p(tags$em("Set to 0 for a single-occasion design."),
+                               style = "color: #7f8c8d; font-size: 12px; margin-top: 25px;"))
+            )
+          ),
+
+          box(
+            title = "Simulation settings",
+            status = "info",
+            solidHeader = TRUE,
+            width = 6,
+            fluidRow(
+              column(6, numericInput("n_subjects", "Virtual subjects",
+                                     value = 1000, min = 10, max = 5000, step = 100)),
+              column(6, numericInput("seed", "Random seed",
+                                     value = 123, min = 1, step = 1))
+            ),
+            numericInput("delta", "Output time step (h)",
+                         value = 0.1, min = 0.01, max = 1, step = 0.05),
+            tags$p(tags$em("A finer step sharpens peak and trough estimates at the cost of runtime."),
+                   style = "color: #7f8c8d; font-size: 12px;")
+          )
+        )
+      ),
+
+      # --- About tab --------------------------------------------------------
       tabItem(
         tabName = "about",
         box(
-          title = "About This Application",
+          title = "About this application",
           status = "primary",
           solidHeader = TRUE,
           width = 12,
           tags$div(
             style = "padding: 20px;",
-            tags$h3("Piperacillin Pharmacokinetic Simulation Dashboard"),
+            tags$h3("Dosing Simulator"),
             tags$p(
-              "This interactive dashboard simulates piperacillin pharmacokinetics in pediatric patients 
-              using a population pharmacokinetic model. The simulation allows you to explore how different 
-              patient characteristics (body weight, renal function) and dosing regimens affect drug 
-              exposure and target attainment."
+              "An interactive Monte Carlo simulator for intravenous dosing regimens,
+              built on a generic two-compartment population pharmacokinetic model.
+              The drug is not fixed: every typical parameter, covariate effect and
+              variance term is an input, so any compound adequately described by
+              two-compartment linear kinetics can be explored by entering its
+              estimates on the Model setup tab."
             ),
-            tags$h4("Key Features:"),
+            tags$h4("What it does"),
             tags$ul(
-              tags$li("Monte Carlo simulation of 1,000 virtual patients"),
-              tags$li("Real-time visualization of concentration-time profiles"),
-              tags$li("Probability of Target Attainment (PTA) calculations"),
-              tags$li("90% prediction intervals for concentration profiles"),
-              tags$li("Interactive parameter adjustment")
+              tags$li("Simulates a population of virtual subjects with variability in weight and renal function"),
+              tags$li("Applies between-subject and between-occasion variability to the PK parameters"),
+              tags$li("Plots the median concentration-time profile with 50% and 90% prediction intervals"),
+              tags$li("Reports target attainment against two user-defined concentration targets"),
+              tags$li("Summarises trough statistics and time above target over the final dosing interval")
             ),
-            tags$h4("Model Information:"),
-            tags$p(
-              "The pharmacokinetic model accounts for:"),
+            tags$h4("Model structure"),
             tags$ul(
-              tags$li("Body weight effects on clearance and volume of distribution"),
-              tags$li("Creatinine clearance effects on drug elimination"),
-              tags$li("Inter-individual variability in pharmacokinetic parameters")
+              tags$li("Two compartments with first-order elimination from the central compartment"),
+              tags$li("Allometric scaling of clearance and volume on body weight"),
+              tags$li("A power function of a renal function marker on clearance"),
+              tags$li("Log-normal between-subject variability on clearance and central volume"),
+              tags$li("Between-occasion variability on clearance, for two-occasion designs")
             ),
-            tags$h4("Dosing Regimen:"),
+            tags$h4("Units"),
             tags$p(
-              "Q2H dosing: Piperacillin administered every 2 hours via 30-minute intravenous infusion."
+              "Units are not enforced. The convention assumed throughout is amount in mg,
+              volume in L, clearance in L/h and time in h, giving concentration in mg/L.
+              Any self-consistent set works."
             ),
             tags$hr(),
             tags$p(
-              tags$em("Version 2.0 - Enhanced UI and Additional Features"),
-              style = "color: #7f8c8d; font-size: 12px;"
+              tags$strong("This is a simulation tool for research and teaching. "),
+              "The default parameters are illustrative round numbers and do not
+              describe any real compound. Nothing here is validated for clinical
+              use and it must not be used to guide the treatment of a patient.",
+              style = "color: #c0392b;"
             )
           )
         )
@@ -443,257 +535,328 @@ ui <- dashboardPage(
   )
 )
 
-# Define server logic
-server <- function(input, output) {
-  
-  # Reactive function to run simulation
-  run_simulation <- reactive({
-    set.seed(123)
-    vp <- data.frame(ID = c(1:1000))
-    dose <- input$dose
-    
-    # Generate patient dataset
-    vp <- mutate(vp, WT = runif(1000, min = input$WT, max = input$WT+9))
-    vp <- mutate(vp, CRCL = runif(1000, min = input$CRCL, max = input$CRCL+9))
-    
-    # Create dosing information
-    # IMPORTANT: Must include WT and CRCL in the dataframe for mrgsolve to use them in the model
-    df <- vp %>%
-      transmute(
-        C = rep("", 1000),
-        ID, 
-        TIME = rep(0, 1000),
-        AMT = WT * dose,
-        DV = rep(0, 1000),
-        CMT = rep(1, 1000),
-        EVID = rep(1, 1000),
-        RATE = (WT * dose) / 0.5,
-        MDV = rep(1, 1000),
-        OCC = rep(1, 1000),
-        ADDL = rep(12, 1000),
-        II = rep(2, 1000),
-        WT = WT,      # Include WT for model calculations
-        CRCL = CRCL  # Include CRCL for model calculations
-      ) %>%
-      arrange(ID, TIME, desc(EVID))
-    
-    set.seed(123)
-    sim_out <- mod1 %>%
-      data_set(df) %>%
-      mrgsim(start = 0, end = 24, delta = 0.1)
-    
-    sim_out_df <- as_tibble(sim_out) %>% filter(EVID == 0)
-    
-    # Calculate trough concentrations
-    d_summary2 <- sim_out_df %>%
-      filter(TIME > 20) %>%
-      filter(EVID == 0) %>%
-      group_by(ID) %>% 
-      summarize(trough = min(CP)) %>%
-      ungroup()
-    
-    d_summary2 <- d_summary2 %>%
-      mutate(
-        above_target_8 = if_else(trough > 8, TRUE, FALSE),
-        above_target_32 = if_else(trough > 32, TRUE, FALSE)
-      )
-    
-    # Calculate PTA
-    pta_8 <- mean(d_summary2$above_target_8)
-    pta_32 <- mean(d_summary2$above_target_32)
-    
-    # Calculate summary statistics
-    cl_mean <- mean(sim_out_df$CL)
-    
-    # Calculate additional statistics
-    summary_stats <- sim_out_df %>%
-      filter(TIME > 20) %>%
-      summarize(
-        median_trough = median(CP),
-        mean_trough = mean(CP),
-        q5_trough = quantile(CP, 0.05),
-        q95_trough = quantile(CP, 0.95),
-        min_trough = min(CP),
-        max_trough = max(CP)
-      )
-    
+# ---------------------------------------------------------------------------
+# Server
+# ---------------------------------------------------------------------------
+
+server <- function(input, output, session) {
+
+  # Number of doses that fit in the simulated window, and the window over
+  # which attainment is assessed (the final complete dosing interval).
+  regimen <- reactive({
+    shiny::req(input$interval, input$duration)
+    validate(
+      need(input$interval > 0, "Dosing interval must be greater than zero."),
+      need(input$duration >= input$interval,
+           "Simulation duration must be at least one dosing interval."),
+      need(!is.na(input$infdur) && input$infdur >= 0,
+           "Infusion duration cannot be negative."),
+      need(input$infdur < input$interval,
+           "Infusion duration must be shorter than the dosing interval.")
+    )
+    n_doses <- floor(input$duration / input$interval)
     list(
-      sim_out_df = sim_out_df,
-      d_summary2 = d_summary2,
-      pta_8 = pta_8,
-      pta_32 = pta_32,
-      cl_mean = cl_mean,
-      summary_stats = summary_stats,
-      wt_min = input$WT,
-      wt_max = input$WT + 9,
-      crcl_min = input$CRCL,
-      crcl_max = input$CRCL + 9,
-      dose_total = input$dose * input$WT
+      n_doses = n_doses,
+      addl = max(n_doses - 1, 0),
+      window_start = input$duration - input$interval,
+      window_end = input$duration
     )
   })
-  
-  # Value boxes
-  output$pta_8_box <- renderValueBox({
-    sim_data <- run_simulation()
-    pta <- sim_data$pta_8 * 100
-    
+
+  # The compiled model with the current parameters and variability applied.
+  # param() and omat() update in place, so the C++ is compiled only once.
+  configured_model <- reactive({
+    shiny::req(input$tvcl, input$tvv1, input$tvq, input$tvv2)
+    validate(
+      need(input$tvcl > 0 && input$tvv1 > 0 && input$tvv2 > 0,
+           "Clearance and volumes must be greater than zero.")
+    )
+    exponents <- if (isTRUE(input$allometric)) {
+      list(cl = 0.75, v1 = 1.0, q = 0.75, v2 = 1.0)
+    } else {
+      list(cl = 0, v1 = 0, q = 0, v2 = 0)
+    }
+
+    mod_base %>%
+      param(
+        TVCL = input$tvcl, TVV1 = input$tvv1,
+        TVQ = input$tvq, TVV2 = input$tvv2,
+        WT_REF = input$wt_ref, RENAL_REF = input$renal_ref,
+        RENAL_EXP_CL = input$renal_exp,
+        WT_EXP_CL = exponents$cl, WT_EXP_V1 = exponents$v1,
+        WT_EXP_Q = exponents$q, WT_EXP_V2 = exponents$v2
+      ) %>%
+      omat(dmat(
+        cv_to_var(input$iiv_cl),
+        cv_to_var(input$iiv_v1),
+        cv_to_var(input$iov_cl),
+        0
+      ))
+  })
+
+  run_simulation <- reactive({
+    reg <- regimen()
+    mod <- configured_model()
+    n <- input$n_subjects
+    shiny::req(n)
+
+    set.seed(input$seed)
+
+    # Covariates are drawn uniformly across the requested ranges, so the
+    # population spans the range rather than clustering at its centre.
+    vp <- tibble(
+      ID = seq_len(n),
+      WT = runif(n, min = input$wt_range[1], max = input$wt_range[2]),
+      RENAL = runif(n, min = input$renal_range[1], max = input$renal_range[2])
+    )
+
+    amount <- if (input$dose_basis == "mgkg") vp$WT * input$dose else rep(input$dose, n)
+
+    # RATE = 0 gives a bolus; otherwise mrgsolve infuses the amount over the
+    # requested duration.
+    dosing <- vp %>%
+      transmute(
+        ID, TIME = 0,
+        AMT = amount,
+        CMT = 1,
+        EVID = 1,
+        RATE = if (input$infdur > 0) amount / input$infdur else 0,
+        ADDL = reg$addl,
+        II = input$interval,
+        OCC = 1,
+        WT, RENAL
+      ) %>%
+      arrange(ID, TIME)
+
+    set.seed(input$seed)
+    sim <- mod %>%
+      data_set(dosing) %>%
+      mrgsim(start = 0, end = input$duration, delta = input$delta, obsonly = TRUE) %>%
+      as_tibble()
+
+    window <- sim %>% dplyr::filter(TIME >= reg$window_start, TIME <= reg$window_end)
+
+    per_subject <- window %>%
+      group_by(ID) %>%
+      summarise(
+        trough = min(IPRED),
+        peak = max(IPRED),
+        # Share of the interval spent above the lower target. mean() over an
+        # evenly spaced grid is the fraction of sampled time points, which
+        # approaches the true fraction as the output step shrinks.
+        time_above = mean(IPRED > input$target1) * 100,
+        .groups = "drop"
+      ) %>%
+      mutate(
+        above_target_1 = trough > input$target1,
+        above_target_2 = trough > input$target2
+      )
+
+    list(
+      sim = sim,
+      per_subject = per_subject,
+      pta_1 = mean(per_subject$above_target_1),
+      pta_2 = mean(per_subject$above_target_2),
+      cl_mean = mean(sim$CL),
+      dose_total_mean = mean(amount),
+      regimen = reg,
+      stats = per_subject %>%
+        summarise(
+          median_trough = median(trough),
+          mean_trough = mean(trough),
+          q5_trough = quantile(trough, 0.05),
+          q95_trough = quantile(trough, 0.95),
+          min_trough = min(trough),
+          max_trough = max(trough),
+          median_peak = median(peak),
+          median_time_above = median(time_above)
+        )
+    )
+  })
+
+  # --- Value boxes ---------------------------------------------------------
+
+  pta_box <- function(pta, label, sublabel, icon_name) {
+    value <- pta * 100
     valueBox(
       value = tags$div(
-        tags$span(sprintf("%.1f", pta), style = "font-size: 36px; font-weight: bold;"),
+        tags$span(sprintf("%.1f", value),
+                  style = "font-size: 36px; font-weight: bold;"),
         tags$span("%", style = "font-size: 24px;")
       ),
       subtitle = tags$div(
-        tags$strong("PTA for 1× MIC (8 mg/L)"),
-        tags$br(),
-        tags$span("Trough concentration target", style = "font-size: 11px;")
+        tags$strong(label), tags$br(),
+        tags$span(sublabel, style = "font-size: 11px;")
       ),
-      icon = icon("check-circle"),
-      color = ifelse(pta >= 90, "green", ifelse(pta >= 70, "yellow", "red")),
+      icon = icon(icon_name),
+      color = if (value >= 90) "green" else if (value >= 70) "yellow" else "red",
       width = NULL
     )
-  })
-  
-  output$pta_32_box <- renderValueBox({
+  }
+
+  output$pta_1_box <- renderValueBox({
     sim_data <- run_simulation()
-    pta <- sim_data$pta_32 * 100
-    
-    valueBox(
-      value = tags$div(
-        tags$span(sprintf("%.1f", pta), style = "font-size: 36px; font-weight: bold;"),
-        tags$span("%", style = "font-size: 24px;")
-      ),
-      subtitle = tags$div(
-        tags$strong("PTA for 4× MIC (32 mg/L)"),
-        tags$br(),
-        tags$span("Enhanced efficacy target", style = "font-size: 11px;")
-      ),
-      icon = icon("star"),
-      color = ifelse(pta >= 90, "green", ifelse(pta >= 70, "yellow", "red")),
-      width = NULL
-    )
+    pta_box(sim_data$pta_1,
+            sprintf("Attainment, %g mg/L", input$target1),
+            "Trough above lower target", "check-circle")
   })
-  
+
+  output$pta_2_box <- renderValueBox({
+    sim_data <- run_simulation()
+    pta_box(sim_data$pta_2,
+            sprintf("Attainment, %g mg/L", input$target2),
+            "Trough above upper target", "star")
+  })
+
   output$cl_box <- renderValueBox({
     sim_data <- run_simulation()
-    
     valueBox(
       value = tags$div(
-        tags$span(sprintf("%.2f", sim_data$cl_mean), style = "font-size: 36px; font-weight: bold;"),
+        tags$span(sprintf("%.2f", sim_data$cl_mean),
+                  style = "font-size: 36px; font-weight: bold;"),
         tags$span(" L/h", style = "font-size: 20px;")
       ),
       subtitle = tags$div(
-        tags$strong("Mean Clearance"),
-        tags$br(),
+        tags$strong("Mean clearance"), tags$br(),
         tags$span("Population average", style = "font-size: 11px;")
       ),
-      icon = icon("tint"),
-      color = "blue",
-      width = NULL
+      icon = icon("tint"), color = "blue", width = NULL
     )
   })
-  
+
   output$dose_total_box <- renderValueBox({
     sim_data <- run_simulation()
-    
+    subtitle <- if (input$dose_basis == "mgkg") {
+      sprintf("%g mg/kg, mean weight %.1f kg", input$dose,
+              mean(input$wt_range))
+    } else {
+      sprintf("%g mg flat dose", input$dose)
+    }
     valueBox(
       value = tags$div(
-        tags$span(sprintf("%.0f", sim_data$dose_total), style = "font-size: 36px; font-weight: bold;"),
+        tags$span(sprintf("%.0f", sim_data$dose_total_mean),
+                  style = "font-size: 36px; font-weight: bold;"),
         tags$span(" mg", style = "font-size: 20px;")
       ),
       subtitle = tags$div(
-        tags$strong("Total Dose per Administration"),
-        tags$br(),
-        tags$span(sprintf("%.0f mg/kg × %.0f kg", input$dose, input$WT), 
-                 style = "font-size: 11px;")
+        tags$strong("Mean dose per administration"), tags$br(),
+        tags$span(subtitle, style = "font-size: 11px;")
       ),
-      icon = icon("syringe"),
-      color = "purple",
-      width = NULL
+      icon = icon("syringe"), color = "purple", width = NULL
     )
   })
-  
-  # Text outputs
-  output$wt_range <- renderText({
-    sim_data <- run_simulation()
-    sprintf("%.1f - %.1f kg", sim_data$wt_min, sim_data$wt_max)
+
+  # --- Text outputs --------------------------------------------------------
+
+  output$plot_subtitle <- renderText({
+    sprintf(" (n = %s virtual subjects)", format(input$n_subjects, big.mark = ","))
   })
-  
-  output$crcl_range <- renderText({
-    sim_data <- run_simulation()
-    sprintf("%.0f - %.0f mL/min/1.73m²", sim_data$crcl_min, sim_data$crcl_max)
+
+  output$n_subjects_text <- renderText({
+    format(input$n_subjects, big.mark = ",")
   })
-  
+
+  output$duration_text <- renderText({
+    sprintf("%g h", input$duration)
+  })
+
+  output$n_doses_text <- renderText({
+    reg <- regimen()
+    sprintf("%d, every %g h over %g h",
+            reg$n_doses, input$interval,
+            if (input$infdur > 0) input$infdur else 0)
+  })
+
+  output$wt_range_text <- renderText({
+    sprintf("%.0f - %.0f kg", input$wt_range[1], input$wt_range[2])
+  })
+
+  output$renal_range_text <- renderText({
+    sprintf("%.0f - %.0f mL/min/1.73m²",
+            input$renal_range[1], input$renal_range[2])
+  })
+
   output$cl_value <- renderText({
-    sim_data <- run_simulation()
-    sprintf("%.2f", sim_data$cl_mean)
+    sprintf("%.2f", run_simulation()$cl_mean)
   })
-  
-  # Main plot
+
+  output$window_text <- renderText({
+    reg <- regimen()
+    sprintf("%g - %g h (final dosing interval)", reg$window_start, reg$window_end)
+  })
+
+  output$target_description <- renderUI({
+    tags$div(
+      tags$p(
+        tags$strong(sprintf("Lower target (%g mg/L): ", input$target1)),
+        tags$span("the concentration the trough should not fall below.",
+                  style = "color: #7f8c8d;")
+      ),
+      tags$p(
+        tags$strong(sprintf("Upper target (%g mg/L): ", input$target2)),
+        tags$span("a more demanding threshold, for comparison.",
+                  style = "color: #7f8c8d;")
+      )
+    )
+  })
+
+  # --- Plot ----------------------------------------------------------------
+
   output$main_plot <- renderPlot({
     sim_data <- run_simulation()
-    sim_out_df <- sim_data$sim_out_df
-    
-    # Summarize simulation output
-    d_summary <- sim_out_df %>%
+    reg <- sim_data$regimen
+
+    d_summary <- sim_data$sim %>%
       group_by(TIME) %>%
-      summarize(
-        med = median(CP, na.rm = TRUE),
-        min5 = quantile(CP, 0.05, na.rm = TRUE),
-        max95 = quantile(CP, 0.95, na.rm = TRUE),
-        q25 = quantile(CP, 0.25, na.rm = TRUE),
-        q75 = quantile(CP, 0.75, na.rm = TRUE),
-        .groups = 'drop'
+      summarise(
+        med = median(IPRED, na.rm = TRUE),
+        min5 = quantile(IPRED, 0.05, na.rm = TRUE),
+        max95 = quantile(IPRED, 0.95, na.rm = TRUE),
+        q25 = quantile(IPRED, 0.25, na.rm = TRUE),
+        q75 = quantile(IPRED, 0.75, na.rm = TRUE),
+        .groups = "drop"
       )
-    
-    # Create enhanced plot
-    g <- ggplot(d_summary, aes(x = TIME)) +
-      # 90% prediction interval
-      geom_ribbon(aes(ymin = min5, ymax = max95), 
-                  fill = "#3498db", alpha = 0.15, 
-                  color = NA) +
-      # 50% prediction interval
-      geom_ribbon(aes(ymin = q25, ymax = q75), 
-                  fill = "#2980b9", alpha = 0.25, 
-                  color = NA) +
-      # Median line
-      geom_line(aes(y = med), color = "#2c3e50", size = 1.5, linetype = "solid") +
-      # Target lines
-      geom_hline(yintercept = 8, color = "#e74c3c", linetype = "dashed", 
-                 linewidth = 1.2, alpha = 0.8) +
-      geom_hline(yintercept = 32, color = "#c0392b", linetype = "dashed", 
-                 linewidth = 1.2, alpha = 0.8) +
-      # Labels for target lines
-      annotate("text", x = 23, y = 8.5, label = "1× MIC (8 mg/L)", 
-               hjust = 1, color = "#e74c3c", size = 4.5, fontface = "bold",
-               bg = "white", label.padding = unit(0.3, "lines")) +
-      annotate("text", x = 23, y = 33, label = "4× MIC (32 mg/L)", 
-               hjust = 1, color = "#c0392b", size = 4.5, fontface = "bold",
-               bg = "white", label.padding = unit(0.3, "lines")) +
-      # Axis labels and title
+
+    # Scaled to the data and the targets rather than to a fixed ceiling, so
+    # nothing is silently clipped out of the panel.
+    y_max <- max(d_summary$max95, input$target1, input$target2, na.rm = TRUE) * 1.1
+    label_x <- input$duration * 0.99
+
+    ggplot(d_summary, aes(x = TIME)) +
+      geom_ribbon(aes(ymin = min5, ymax = max95),
+                  fill = "#3498db", alpha = 0.15, color = NA) +
+      geom_ribbon(aes(ymin = q25, ymax = q75),
+                  fill = "#2980b9", alpha = 0.25, color = NA) +
+      geom_line(aes(y = med), color = "#2c3e50", linewidth = 1.5) +
+      annotate("rect",
+               xmin = reg$window_start, xmax = reg$window_end,
+               ymin = 0, ymax = y_max,
+               fill = "#95a5a6", alpha = 0.10) +
+      geom_hline(yintercept = input$target1, color = "#e74c3c",
+                 linetype = "dashed", linewidth = 1.2, alpha = 0.8) +
+      geom_hline(yintercept = input$target2, color = "#c0392b",
+                 linetype = "dashed", linewidth = 1.2, alpha = 0.8) +
+      annotate("text", x = label_x, y = input$target1 + y_max * 0.02,
+               label = sprintf("Lower target (%g mg/L)", input$target1),
+               hjust = 1, color = "#e74c3c", size = 4.5, fontface = "bold") +
+      annotate("text", x = label_x, y = input$target2 + y_max * 0.02,
+               label = sprintf("Upper target (%g mg/L)", input$target2),
+               hjust = 1, color = "#c0392b", size = 4.5, fontface = "bold") +
       labs(
-        y = "Piperacillin Concentration (mg/L)", 
+        y = "Concentration (mg/L)",
         x = "Time (hours)",
-        title = "Population Pharmacokinetic Simulation: Concentration-Time Profile",
-        subtitle = "Median (solid line) with 50% (dark blue) and 90% (light blue) prediction intervals"
+        title = "Population simulation: concentration-time profile",
+        subtitle = "Median with 50% (dark) and 90% (light) prediction intervals; shaded band is the assessment window"
       ) +
-      # Y-axis scale
-      scale_y_continuous(
-        limits = c(0, 200), 
-        breaks = seq(0, 200, 25),
-        expand = expansion(c(0, 0.02))
-      ) +
-      # X-axis scale
-      scale_x_continuous(
-        limits = c(0, 24), 
-        breaks = seq(0, 24, 2),
-        expand = expansion(c(0, 0.02))
-      ) +
-      # Theme
+      scale_y_continuous(limits = c(0, y_max), expand = expansion(c(0, 0.02))) +
+      scale_x_continuous(limits = c(0, input$duration),
+                         breaks = scales::pretty_breaks(n = 12),
+                         expand = expansion(c(0, 0.02))) +
       theme_minimal() +
       theme(
-        plot.title = element_text(size = 16, face = "bold", color = "#2c3e50", 
+        plot.title = element_text(size = 16, face = "bold", color = "#2c3e50",
                                   margin = margin(b = 5)),
-        plot.subtitle = element_text(size = 12, color = "#7f8c8d", 
+        plot.subtitle = element_text(size = 12, color = "#7f8c8d",
                                      margin = margin(b = 15)),
         axis.title = element_text(size = 13, face = "bold", color = "#2c3e50"),
         axis.text = element_text(size = 11, color = "#34495e"),
@@ -706,62 +869,53 @@ server <- function(input, output) {
         axis.ticks.length = unit(0.3, "cm"),
         plot.margin = margin(15, 15, 15, 15)
       )
-    
-    print(g)
   })
-  
-  # Statistics table
+
+  # --- Statistics table ----------------------------------------------------
+
   output$stats_table <- DT::renderDataTable({
     sim_data <- run_simulation()
-    
+    s <- sim_data$stats
+
     stats_df <- data.frame(
       Metric = c(
-        "PTA for 1× MIC (8 mg/L)",
-        "PTA for 4× MIC (32 mg/L)",
-        "Mean Clearance (L/h)",
-        "Median Trough Concentration (mg/L)",
-        "Mean Trough Concentration (mg/L)",
-        "5th Percentile Trough (mg/L)",
-        "95th Percentile Trough (mg/L)",
-        "Minimum Trough (mg/L)",
-        "Maximum Trough (mg/L)"
+        sprintf("Attainment, trough above %g mg/L", input$target1),
+        sprintf("Attainment, trough above %g mg/L", input$target2),
+        sprintf("Median time above %g mg/L", input$target1),
+        "Mean clearance (L/h)",
+        "Median trough (mg/L)",
+        "Mean trough (mg/L)",
+        "5th percentile trough (mg/L)",
+        "95th percentile trough (mg/L)",
+        "Minimum trough (mg/L)",
+        "Maximum trough (mg/L)",
+        "Median peak (mg/L)"
       ),
       Value = c(
-        sprintf("%.1f%%", sim_data$pta_8 * 100),
-        sprintf("%.1f%%", sim_data$pta_32 * 100),
+        sprintf("%.1f%%", sim_data$pta_1 * 100),
+        sprintf("%.1f%%", sim_data$pta_2 * 100),
+        sprintf("%.1f%% of the interval", s$median_time_above),
         sprintf("%.2f", sim_data$cl_mean),
-        sprintf("%.2f", sim_data$summary_stats$median_trough),
-        sprintf("%.2f", sim_data$summary_stats$mean_trough),
-        sprintf("%.2f", sim_data$summary_stats$q5_trough),
-        sprintf("%.2f", sim_data$summary_stats$q95_trough),
-        sprintf("%.2f", sim_data$summary_stats$min_trough),
-        sprintf("%.2f", sim_data$summary_stats$max_trough)
+        sprintf("%.2f", s$median_trough),
+        sprintf("%.2f", s$mean_trough),
+        sprintf("%.2f", s$q5_trough),
+        sprintf("%.2f", s$q95_trough),
+        sprintf("%.2f", s$min_trough),
+        sprintf("%.2f", s$max_trough),
+        sprintf("%.2f", s$median_peak)
       ),
       stringsAsFactors = FALSE
     )
-    
+
     DT::datatable(
       stats_df,
-      options = list(
-        pageLength = 10,
-        dom = 't',
-        ordering = FALSE
-      ),
+      options = list(pageLength = 11, dom = "t", ordering = FALSE),
       rownames = FALSE,
       colnames = c("Metric", "Value")
     ) %>%
-      DT::formatStyle(
-        "Metric",
-        fontWeight = "bold",
-        color = "#2c3e50"
-      ) %>%
-      DT::formatStyle(
-        "Value",
-        color = "#34495e"
-      )
+      DT::formatStyle("Metric", fontWeight = "bold", color = "#2c3e50") %>%
+      DT::formatStyle("Value", color = "#34495e")
   })
 }
 
-# Create Shiny app
 shinyApp(ui, server)
-
