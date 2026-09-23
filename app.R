@@ -30,204 +30,7 @@ source(file.path("R", "pk_engine.R"))
 
 cv_to_var <- function(cv_percent) log(1 + (cv_percent / 100)^2)
 
-custom_css <- tags$head(
-  tags$style(HTML("
-    /* Main body styling */
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-    }
-
-    /* Sidebar styling */
-    .sidebar {
-      background: linear-gradient(180deg, #2c3e50 0%, #34495e 100%);
-      color: white;
-      box-shadow: 2px 0 10px rgba(0,0,0,0.1);
-    }
-
-    .sidebar .shiny-input-container {
-      color: white;
-      margin-bottom: 20px;
-    }
-
-    .sidebar .shiny-input-container label {
-      color: white !important;
-      font-weight: bold;
-      font-size: 14px;
-      margin-bottom: 8px;
-      display: block;
-    }
-
-    .sidebar h3, .sidebar h4 {
-      color: #ecf0f1;
-      font-weight: 600;
-      margin-bottom: 15px;
-      border-bottom: 2px solid #3498db;
-      padding-bottom: 8px;
-    }
-
-    /* Numeric inputs inside the dark sidebar */
-    .sidebar input[type=number] {
-      background: rgba(255,255,255,0.95);
-      color: #2c3e50;
-      border-radius: 4px;
-      border: none;
-      width: 100%;
-    }
-
-    .sidebar .radio label, .sidebar .shiny-options-group label {
-      color: #ecf0f1 !important;
-      font-weight: normal;
-    }
-
-    /* Slider styling */
-    .irs-bar {
-      background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%);
-      border: none;
-    }
-
-    .irs-single, .irs-from, .irs-to {
-      background: #3498db;
-      border: none;
-      color: white;
-    }
-
-    .irs-handle {
-      border: 3px solid #3498db;
-      background: white;
-      cursor: pointer;
-    }
-
-    .irs-handle:hover, .irs-handle.state_hover {
-      border-color: #2980b9;
-    }
-
-    .shiny-input-container {
-      margin-bottom: 0;
-      width: 100% !important;
-    }
-
-    .form-group {
-      margin-bottom: 0;
-      width: 100% !important;
-    }
-
-    .sidebar-inputs {
-      position: relative;
-      z-index: 1;
-    }
-
-    /* Ensure sliders are clickable and visible */
-    .irs {
-      position: relative;
-      display: block !important;
-      -webkit-touch-callout: none;
-      -webkit-user-select: none;
-      -moz-user-select: none;
-      -ms-user-select: none;
-      user-select: none;
-      width: 100% !important;
-      height: 40px !important;
-      z-index: 10 !important;
-    }
-
-    .irs-slider {
-      cursor: pointer !important;
-      z-index: 11 !important;
-      position: absolute !important;
-    }
-
-    .irs-handle {
-      cursor: grab !important;
-      z-index: 12 !important;
-      position: absolute !important;
-      width: 20px !important;
-      height: 20px !important;
-      top: 20px !important;
-      background: white !important;
-      border: 3px solid #3498db !important;
-      border-radius: 50% !important;
-    }
-
-    .irs-handle:active {
-      cursor: grabbing !important;
-    }
-
-    .irs-bar {
-      display: block !important;
-      position: absolute !important;
-      height: 4px !important;
-      top: 25px !important;
-      background: linear-gradient(to bottom, #3498db 0%, #2980b9 100%) !important;
-      z-index: 9 !important;
-    }
-
-    .irs-line {
-      display: block !important;
-      position: absolute !important;
-      width: 100% !important;
-      height: 4px !important;
-      top: 25px !important;
-      background: #ecf0f1 !important;
-      z-index: 8 !important;
-    }
-
-    /* Value boxes */
-    .value-box {
-      border-radius: 10px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      transition: transform 0.2s;
-    }
-
-    .value-box:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 12px rgba(0,0,0,0.15);
-    }
-
-    .info-box {
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .plot-container {
-      background: white;
-      border-radius: 10px;
-      padding: 20px;
-      box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-    }
-
-    .dataTables_wrapper {
-      background: white;
-      border-radius: 8px;
-      padding: 15px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .main-header {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 20px;
-      border-radius: 0;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-
-    .main-header .logo {
-      font-size: 24px;
-      font-weight: bold;
-    }
-
-    .content-wrapper {
-      background: transparent;
-    }
-
-    h2 {
-      color: #2c3e50;
-      font-weight: 600;
-      margin-top: 20px;
-      margin-bottom: 15px;
-    }
-  "))
-)
+source(file.path("R", "theme.R"))
 
 # ---------------------------------------------------------------------------
 # UI
@@ -319,7 +122,7 @@ ui <- dashboardPage(
             title = tags$div(
               tags$strong("Concentration-time profile"),
               tags$span(textOutput("plot_subtitle", inline = TRUE),
-                        style = "color: #7f8c8d; font-size: 14px; font-weight: normal;")
+                        style = "color: #6b7078; font-size: 14px; font-weight: normal;")
             ),
             status = "primary",
             solidHeader = TRUE,
@@ -347,7 +150,7 @@ ui <- dashboardPage(
                 tags$strong("trough"), " concentration over the final dosing interval ",
                 "stays above the target. The time above target reported in the table ",
                 "is the share of that interval spent above the lower target.",
-                style = "color: #7f8c8d; font-size: 12px; margin-top: 10px;"
+                style = "color: #6b7078; font-size: 12px; margin-top: 10px;"
               )
             )
           ),
@@ -403,7 +206,7 @@ ui <- dashboardPage(
             solidHeader = TRUE,
             width = 6,
             tags$p("Typical values for a subject at the reference covariates below.",
-                   style = "color: #7f8c8d;"),
+                   style = "color: #6b7078;"),
             fluidRow(
               column(6, numericInput("tvcl", "CL (L/h)", value = 5, min = 0.01, step = 0.5)),
               column(6, numericInput("tvv1", "V1 (L)", value = 15, min = 0.01, step = 1))
@@ -420,7 +223,7 @@ ui <- dashboardPage(
             solidHeader = TRUE,
             width = 6,
             tags$p("Typical values are defined at the reference covariates; these should match whatever the source estimates were normalised to.",
-                   style = "color: #7f8c8d;"),
+                   style = "color: #6b7078;"),
             fluidRow(
               column(6, numericInput("wt_ref", "Reference weight (kg)",
                                      value = 70, min = 1, step = 5)),
@@ -431,7 +234,7 @@ ui <- dashboardPage(
               column(6, numericInput("renal_exp", "Renal exponent on CL",
                                      value = 0.5, min = 0, max = 2, step = 0.05)),
               column(6, tags$p(tags$em("0 removes the renal effect; 1 makes clearance proportional to the marker."),
-                               style = "color: #7f8c8d; font-size: 12px; margin-top: 25px;"))
+                               style = "color: #6b7078; font-size: 12px; margin-top: 25px;"))
             ),
             tags$hr(),
             checkboxInput("allometric", "Allometric weight scaling (0.75 on flows, 1 on volumes)",
@@ -446,7 +249,7 @@ ui <- dashboardPage(
             solidHeader = TRUE,
             width = 6,
             tags$p("Entered as coefficients of variation; converted to log-scale variances internally.",
-                   style = "color: #7f8c8d;"),
+                   style = "color: #6b7078;"),
             fluidRow(
               column(6, numericInput("iiv_cl", "Between-subject CV on CL (%)",
                                      value = 30, min = 0, max = 200, step = 5)),
@@ -457,7 +260,7 @@ ui <- dashboardPage(
               column(6, numericInput("iov_cl", "Between-occasion CV on CL (%)",
                                      value = 0, min = 0, max = 200, step = 5)),
               column(6, tags$p(tags$em("Set to 0 for a single-occasion design."),
-                               style = "color: #7f8c8d; font-size: 12px; margin-top: 25px;"))
+                               style = "color: #6b7078; font-size: 12px; margin-top: 25px;"))
             )
           ),
 
@@ -475,7 +278,7 @@ ui <- dashboardPage(
             numericInput("delta", "Output time step (h)",
                          value = 0.1, min = 0.01, max = 1, step = 0.05),
             tags$p(tags$em("A finer step sharpens peak and trough estimates at the cost of runtime."),
-                   style = "color: #7f8c8d; font-size: 12px;")
+                   style = "color: #6b7078; font-size: 12px;")
           )
         )
       ),
@@ -527,7 +330,7 @@ ui <- dashboardPage(
               "The default parameters are illustrative round numbers and do not
               describe any real compound. Nothing here is validated for clinical
               use and it must not be used to guide the treatment of a patient.",
-              style = "color: #c0392b;"
+              style = "color: #d1453b;"
             )
           )
         )
@@ -773,12 +576,12 @@ server <- function(input, output, session) {
       tags$p(
         tags$strong(sprintf("Lower target (%g mg/L): ", input$target1)),
         tags$span("the concentration the trough should not fall below.",
-                  style = "color: #7f8c8d;")
+                  style = "color: #6b7078;")
       ),
       tags$p(
         tags$strong(sprintf("Upper target (%g mg/L): ", input$target2)),
         tags$span("a more demanding threshold, for comparison.",
-                  style = "color: #7f8c8d;")
+                  style = "color: #6b7078;")
       )
     )
   })
@@ -806,52 +609,37 @@ server <- function(input, output, session) {
     label_x <- input$duration * 0.99
 
     ggplot(d_summary, aes(x = TIME)) +
-      geom_ribbon(aes(ymin = min5, ymax = max95),
-                  fill = "#3498db", alpha = 0.15, color = NA) +
-      geom_ribbon(aes(ymin = q25, ymax = q75),
-                  fill = "#2980b9", alpha = 0.25, color = NA) +
-      geom_line(aes(y = med), color = "#2c3e50", linewidth = 1.5) +
       annotate("rect",
                xmin = reg$window_start, xmax = reg$window_end,
                ymin = 0, ymax = y_max,
-               fill = "#95a5a6", alpha = 0.10) +
-      geom_hline(yintercept = input$target1, color = "#e74c3c",
-                 linetype = "dashed", linewidth = 1.2, alpha = 0.8) +
-      geom_hline(yintercept = input$target2, color = "#c0392b",
-                 linetype = "dashed", linewidth = 1.2, alpha = 0.8) +
-      annotate("text", x = label_x, y = input$target1 + y_max * 0.02,
-               label = sprintf("Lower target (%g mg/L)", input$target1),
-               hjust = 1, color = "#e74c3c", size = 4.5, fontface = "bold") +
-      annotate("text", x = label_x, y = input$target2 + y_max * 0.02,
-               label = sprintf("Upper target (%g mg/L)", input$target2),
-               hjust = 1, color = "#c0392b", size = 4.5, fontface = "bold") +
+               fill = PAL$sunken, colour = NA) +
+      geom_ribbon(aes(ymin = min5, ymax = max95),
+                  fill = PAL$blue, alpha = 0.14, colour = NA) +
+      geom_ribbon(aes(ymin = q25, ymax = q75),
+                  fill = PAL$blue, alpha = 0.28, colour = NA) +
+      geom_line(aes(y = med), colour = PAL$blue_ink, linewidth = 1.1) +
+      geom_hline(yintercept = input$target1, colour = PAL$amber,
+                 linetype = "22", linewidth = 0.8) +
+      geom_hline(yintercept = input$target2, colour = PAL$red,
+                 linetype = "22", linewidth = 0.8) +
+      annotate("text", x = label_x, y = input$target1 + y_max * 0.018,
+               label = sprintf("Lower target  %g mg/L", input$target1),
+               hjust = 1, colour = PAL$amber_ink, size = 3.6) +
+      annotate("text", x = label_x, y = input$target2 + y_max * 0.018,
+               label = sprintf("Upper target  %g mg/L", input$target2),
+               hjust = 1, colour = PAL$red, size = 3.6) +
       labs(
         y = "Concentration (mg/L)",
         x = "Time (hours)",
-        title = "Population simulation: concentration-time profile",
-        subtitle = "Median with 50% (dark) and 90% (light) prediction intervals; shaded band is the assessment window"
+        title = "Concentration-time profile",
+        subtitle = paste0("Median with 50% and 90% prediction intervals. ",
+                          "The shaded band is the assessment window.")
       ) +
       scale_y_continuous(limits = c(0, y_max), expand = expansion(c(0, 0.02))) +
       scale_x_continuous(limits = c(0, input$duration),
-                         breaks = scales::pretty_breaks(n = 12),
+                         breaks = scales::pretty_breaks(n = 10),
                          expand = expansion(c(0, 0.02))) +
-      theme_minimal() +
-      theme(
-        plot.title = element_text(size = 16, face = "bold", color = "#2c3e50",
-                                  margin = margin(b = 5)),
-        plot.subtitle = element_text(size = 12, color = "#7f8c8d",
-                                     margin = margin(b = 15)),
-        axis.title = element_text(size = 13, face = "bold", color = "#2c3e50"),
-        axis.text = element_text(size = 11, color = "#34495e"),
-        panel.grid.major = element_line(color = "#ecf0f1", linewidth = 0.5),
-        panel.grid.minor = element_line(color = "#f8f9fa", linewidth = 0.3),
-        plot.background = element_rect(fill = "white", color = NA),
-        panel.background = element_rect(fill = "white", color = NA),
-        axis.line = element_line(color = "#34495e", linewidth = 0.8),
-        axis.ticks = element_line(color = "#34495e", linewidth = 0.6),
-        axis.ticks.length = unit(0.3, "cm"),
-        plot.margin = margin(15, 15, 15, 15)
-      )
+      theme_sim()
   })
 
   # --- Statistics table ----------------------------------------------------
@@ -896,8 +684,8 @@ server <- function(input, output, session) {
       rownames = FALSE,
       colnames = c("Metric", "Value")
     ) %>%
-      DT::formatStyle("Metric", fontWeight = "bold", color = "#2c3e50") %>%
-      DT::formatStyle("Value", color = "#34495e")
+      DT::formatStyle("Metric", fontWeight = "bold", color = "#16181d") %>%
+      DT::formatStyle("Value", color = "#454951")
   })
 }
 

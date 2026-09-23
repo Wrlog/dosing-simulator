@@ -58,11 +58,18 @@ jobs:
       - name: Install shinylive
         run: Rscript -e 'install.packages(c("shinylive", "shiny"))'
 
+      - name: Parse the app
+        run: |
+          Rscript -e 'invisible(parse("app.R")); cat("app.R parses
+")'
+          Rscript -e 'invisible(parse("R/pk_engine.R")); invisible(parse("R/theme.R")); cat("R/ parses
+")'
+
       - name: Assemble the app directory
         run: |
           mkdir -p build/R
           cp app.R build/
-          cp R/pk_engine.R build/R/
+          cp R/*.R build/R/
           ls -R build
 
       - name: Export to WebAssembly
