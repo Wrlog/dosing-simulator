@@ -100,10 +100,21 @@ if (!is.finite(worst) || worst > 1e-8) {
   stop(sprintf("closed-form engine disagrees with numerical integration (%.3e)", worst))
 }
 
-# Superposition sanity: at steady state a longer run must not drift.
-conc_a <- two_cmt_conc(c(96), 500, 4, 24, 1, 5, 15, 3, 25)
-conc_b <- two_cmt_conc(c(96), 500, 8, 24, 1, 5, 15, 3, 25)
-if (conc_b <= conc_a) stop("accumulation across doses is not being summed")
+# Accumulation: the trough at the end of the fourth interval must exceed the
+# trough at the end of the first. Comparing two different run lengths at the
+# same clock time does not test this -- at t = 96 h with a 1 h infusion the
+# fifth dose has only just started and contributes exactly zero, so the two
+# runs agree by construction.
+trough_1 <- two_cmt_conc(23.999, 500, 4, 24, 1, 5, 15, 3, 25)
+trough_4 <- two_cmt_conc(95.999, 500, 4, 24, 1, 5, 15, 3, 25)
+if (!(trough_4 > trough_1)) {
+  stop(sprintf("no accumulation across doses (%.4f then %.4f)", trough_1, trough_4))
+}
+
+# Superposition is linear: doubling every dose doubles the concentration.
+single <- two_cmt_conc(30, 500, 3, 24, 1, 5, 15, 3, 25)
+double <- two_cmt_conc(30, 1000, 3, 24, 1, 5, 15, 3, 25)
+if (abs(double - 2 * single) > 1e-10) stop("dose scaling is not linear")
 
 # A bolus at t = 0 must equal dose / V1 exactly.
 c0 <- two_cmt_conc(0, 1000, 1, 24, 0, 5, 20, 3, 25)
