@@ -60,10 +60,8 @@ jobs:
 
       - name: Parse the app
         run: |
-          Rscript -e 'invisible(parse("app.R")); cat("app.R parses
-")'
-          Rscript -e 'invisible(parse("R/pk_engine.R")); invisible(parse("R/theme.R")); cat("R/ parses
-")'
+          Rscript -e 'invisible(parse("app.R")); cat("app.R parses", fill = TRUE)'
+          Rscript -e 'invisible(lapply(list.files("R", full.names = TRUE), parse)); cat("R/ parses", fill = TRUE)'
 
       - name: Assemble the app directory
         run: |
