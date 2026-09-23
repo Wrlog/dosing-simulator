@@ -1,0 +1,87 @@
+name: Build and deploy the web version
+
+# Exports the app to WebAssembly with shinylive and publishes it to GitHub
+# Pages, so it runs in the browser with no server. The PK engine is checked
+# against numerical integration first; if that fails, nothing is deployed.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: release
+          use-public-rspm: true
+
+      - name: Check the PK engine against numerical integration
+        run: Rscript tests/test_pk_engine.R
+
+      - name: Report which dependencies exist as WebAssembly builds
+        run: |
+          R_VER=$(Rscript -e 'cat(paste(R.version$major, substr(R.version$minor,1,1), sep="."))')
+          echo "R $R_VER"
+          for base in "https://repo.r-wasm.org/bin/emscripten/contrib/$R_VER" \
+                      "https://repo.r-wasm.org/bin/emscripten/contrib/4.4"; do
+            if curl -sfL "$base/PACKAGES" -o PACKAGES.webr; then
+              echo "index: $base"
+              break
+            fi
+          done
+          if [ -f PACKAGES.webr ]; then
+            for p in shiny shinydashboard DT dplyr tidyr tibble ggplot2 scales; do
+              if grep -q "^Package: $p$" PACKAGES.webr; then
+                echo "  present: $p"
+              else
+                echo "  MISSING: $p"
+              fi
+            done
+          else
+            echo "could not fetch the webR package index; continuing anyway"
+          fi
+
+      - name: Install shinylive
+        run: Rscript -e 'install.packages(c("shinylive", "shiny"))'
+
+      - name: Assemble the app directory
+        run: |
+          mkdir -p build/R
+          cp app.R build/
+          cp R/pk_engine.R build/R/
+          ls -R build
+
+      - name: Export to WebAssembly
+        run: Rscript -e 'shinylive::export("build", "site")'
+
+      - name: Landing page check
+        run: test -f site/index.html && du -sh site
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

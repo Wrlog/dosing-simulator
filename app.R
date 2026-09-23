@@ -9,24 +9,25 @@
 # The model specification lives in models/TwoCompartment.cpp.
 # ============================================================================
 
-# mrgsolve exports `filter` and `req`, which collide with dplyr's and shiny's.
-# Attach order does not reliably settle it -- re-attaching a package that is
-# already loaded does not move it up the search path, so calling
-# `shiny::runApp()` before this file is sourced is enough to flip which one
-# wins. The two ambiguous calls are namespace-qualified below instead.
-library(mrgsolve)
-library(tidyverse)
+# The PK engine is a closed-form solution of the two-compartment model in
+# models/TwoCompartment.cpp, not a numerical integration of it. mrgsolve is
+# no longer a dependency: it compiles C++ at run time, which a browser cannot
+# do, and this model is linear so it has an exact solution anyway. Dropping
+# it is what lets the app be published as a static page through webR.
+#
+# tests/test_pk_engine.R checks the engine against RK4 integration of the
+# same ODEs and fails the build if they disagree.
 library(shiny)
 library(shinydashboard)
 library(DT)
+library(dplyr)
+library(tidyr)
+library(tibble)
+library(ggplot2)
+library(scales)
 
-# Compiled once at startup, then updated per run with param() and omat()
-# rather than re-read, which would recompile on every reactive invalidation.
-mod_base <- mread("TwoCompartment", project = "models")
+source(file.path("R", "pk_engine.R"))
 
-# A log-normal coefficient of variation, as a fraction, expressed as the
-# variance of the underlying normal. Entering omega as a CV is what people
-# read off a report; the model needs the variance.
 cv_to_var <- function(cv_percent) log(1 + (cv_percent / 100)^2)
 
 custom_css <- tags$head(
@@ -563,76 +564,58 @@ server <- function(input, output, session) {
     )
   })
 
-  # The compiled model with the current parameters and variability applied.
-  # param() and omat() update in place, so the C++ is compiled only once.
+  # The current parameter set. Previously this configured a compiled
+  # mrgsolve object; now it is a plain list handed to the closed-form engine.
   configured_model <- reactive({
     shiny::req(input$tvcl, input$tvv1, input$tvq, input$tvv2)
     validate(
       need(input$tvcl > 0 && input$tvv1 > 0 && input$tvv2 > 0,
            "Clearance and volumes must be greater than zero.")
     )
-    exponents <- if (isTRUE(input$allometric)) {
-      list(cl = 0.75, v1 = 1.0, q = 0.75, v2 = 1.0)
-    } else {
-      list(cl = 0, v1 = 0, q = 0, v2 = 0)
-    }
-
-    mod_base %>%
-      param(
-        TVCL = input$tvcl, TVV1 = input$tvv1,
-        TVQ = input$tvq, TVV2 = input$tvv2,
-        WT_REF = input$wt_ref, RENAL_REF = input$renal_ref,
-        RENAL_EXP_CL = input$renal_exp,
-        WT_EXP_CL = exponents$cl, WT_EXP_V1 = exponents$v1,
-        WT_EXP_Q = exponents$q, WT_EXP_V2 = exponents$v2
-      ) %>%
-      omat(dmat(
-        cv_to_var(input$iiv_cl),
-        cv_to_var(input$iiv_v1),
-        cv_to_var(input$iov_cl),
-        0
-      ))
+    list(
+      tvcl = input$tvcl, tvv1 = input$tvv1,
+      tvq = input$tvq, tvv2 = input$tvv2,
+      wt_ref = input$wt_ref, renal_ref = input$renal_ref,
+      renal_exp_cl = input$renal_exp,
+      allometric = isTRUE(input$allometric),
+      iiv_cl_var = cv_to_var(input$iiv_cl),
+      iiv_v1_var = cv_to_var(input$iiv_v1),
+      iov_cl_var = cv_to_var(input$iov_cl)
+    )
   })
 
   run_simulation <- reactive({
     reg <- regimen()
-    mod <- configured_model()
+    cfg <- configured_model()
     n <- input$n_subjects
     shiny::req(n)
 
-    set.seed(input$seed)
+    sim <- simulate_population(
+      n_subjects = n,
+      wt_range = input$wt_range,
+      renal_range = input$renal_range,
+      dose = input$dose,
+      dose_per_kg = identical(input$dose_basis, "mgkg"),
+      inf_dur = input$infdur,
+      interval = input$interval,
+      n_doses = reg$n_doses,
+      duration = input$duration,
+      delta = input$delta,
+      tvcl = cfg$tvcl, tvv1 = cfg$tvv1, tvq = cfg$tvq, tvv2 = cfg$tvv2,
+      wt_ref = cfg$wt_ref, renal_ref = cfg$renal_ref,
+      renal_exp_cl = cfg$renal_exp_cl,
+      allometric = cfg$allometric,
+      iiv_cl_var = cfg$iiv_cl_var,
+      iiv_v1_var = cfg$iiv_v1_var,
+      iov_cl_var = cfg$iov_cl_var,
+      seed = input$seed
+    ) %>% as_tibble()
 
-    # Covariates are drawn uniformly across the requested ranges, so the
-    # population spans the range rather than clustering at its centre.
-    vp <- tibble(
-      ID = seq_len(n),
-      WT = runif(n, min = input$wt_range[1], max = input$wt_range[2]),
-      RENAL = runif(n, min = input$renal_range[1], max = input$renal_range[2])
-    )
-
-    amount <- if (input$dose_basis == "mgkg") vp$WT * input$dose else rep(input$dose, n)
-
-    # RATE = 0 gives a bolus; otherwise mrgsolve infuses the amount over the
-    # requested duration.
-    dosing <- vp %>%
-      transmute(
-        ID, TIME = 0,
-        AMT = amount,
-        CMT = 1,
-        EVID = 1,
-        RATE = if (input$infdur > 0) amount / input$infdur else 0,
-        ADDL = reg$addl,
-        II = input$interval,
-        OCC = 1,
-        WT, RENAL
-      ) %>%
-      arrange(ID, TIME)
-
-    set.seed(input$seed)
-    sim <- mod %>%
-      data_set(dosing) %>%
-      mrgsim(start = 0, end = input$duration, delta = input$delta, obsonly = TRUE) %>%
-      as_tibble()
+    amount <- if (identical(input$dose_basis, "mgkg")) {
+      sim %>% distinct(ID, WT) %>% pull(WT) * input$dose
+    } else {
+      rep(input$dose, n)
+    }
 
     window <- sim %>% dplyr::filter(TIME >= reg$window_start, TIME <= reg$window_end)
 
