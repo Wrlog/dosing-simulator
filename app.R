@@ -222,7 +222,7 @@ ui <- dashboardPage(
             status = "primary",
             solidHeader = TRUE,
             width = 6,
-            tags$p("Typical values are defined at the reference covariates; these should match whatever the source estimates were normalised to.",
+            tags$p("Typical values are defined at these reference covariates. Set them to whatever your source estimates were normalised to.",
                    style = "color: #6b7078;"),
             fluidRow(
               column(6, numericInput("wt_ref", "Reference weight (kg)",
@@ -248,7 +248,7 @@ ui <- dashboardPage(
             status = "info",
             solidHeader = TRUE,
             width = 6,
-            tags$p("Entered as coefficients of variation; converted to log-scale variances internally.",
+            tags$p("Enter these as coefficients of variation. They're converted to log-scale variances internally.",
                    style = "color: #6b7078;"),
             fluidRow(
               column(6, numericInput("iiv_cl", "Between-subject CV on CL (%)",
@@ -277,7 +277,7 @@ ui <- dashboardPage(
             ),
             numericInput("delta", "Output time step (h)",
                          value = 0.1, min = 0.01, max = 1, step = 0.05),
-            tags$p(tags$em("A finer step sharpens peak and trough estimates at the cost of runtime."),
+            tags$p(tags$em("A smaller step gives more accurate peaks and troughs but takes longer to run."),
                    style = "color: #6b7078; font-size: 12px;")
           )
         )
@@ -295,11 +295,11 @@ ui <- dashboardPage(
             style = "padding: 20px;",
             tags$h3("Dosing Simulator"),
             tags$p(
-              "An interactive Monte Carlo simulator for intravenous dosing regimens,
-              built on a generic two-compartment population pharmacokinetic model.
-              The drug is not fixed: every typical parameter, covariate effect and
-              variance term is an input, so any compound adequately described by
-              two-compartment linear kinetics can be explored by entering its
+              "A Monte Carlo simulator for intravenous dosing regimens, built on a
+              generic two-compartment population pharmacokinetic model. It isn't
+              tied to one drug. Every typical parameter, covariate effect and
+              variance term is an input, so you can try any compound that
+              two-compartment linear kinetics describes adequately by entering its
               estimates on the Model setup tab."
             ),
             tags$h4("What it does"),
@@ -320,16 +320,16 @@ ui <- dashboardPage(
             ),
             tags$h4("Units"),
             tags$p(
-              "Units are not enforced. The convention assumed throughout is amount in mg,
-              volume in L, clearance in L/h and time in h, giving concentration in mg/L.
-              Any self-consistent set works."
+              "Units aren't enforced. The app assumes amount in mg, volume in L,
+              clearance in L/h and time in h, which gives concentration in mg/L,
+              but any consistent set works."
             ),
             tags$hr(),
             tags$p(
-              tags$strong("This is a simulation tool for research and teaching. "),
-              "The default parameters are illustrative round numbers and do not
+              tags$strong("For research and teaching only. "),
+              "The default parameters are round illustrative numbers that don't
               describe any real compound. Nothing here is validated for clinical
-              use and it must not be used to guide the treatment of a patient.",
+              use, and it must not be used to guide the treatment of a patient.",
               style = "color: #d1453b;"
             )
           )
